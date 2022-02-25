@@ -23,8 +23,8 @@ dependencies:
   - brotli-bin=1.0.9=h8ffe710_6
   - brotlipy=0.7.0=py39hb82d6ee_1003
   - bzip2=1.0.8=h8ffe710_4
-  - ca-certificates=2021.10.8=h5b45459_0
-  - certifi=2021.10.8=py39hcbf5309_1
+  - ca-certificates=2021.10.26=haa95532_4
+  - certifi=2021.10.8=py39haa95532_2
   - cffi=1.15.0=py39h0878f49_0
   - chardet=4.0.0=py39hcbf5309_2
   - charset-normalizer=2.0.10=pyhd8ed1ab_0
@@ -106,8 +106,9 @@ dependencies:
   - numpydoc=1.1.0=py_1
   - olefile=0.46=pyh9f0ad1d_1
   - openjpeg=2.4.0=hb211442_1
-  - openssl=1.1.1l=h8ffe710_0
+  - openssl=1.1.1m=h2bbff1b_0
   - packaging=21.3=pyhd8ed1ab_0
+  - pandas=1.2.4=py39hd77b12b_0
   - pandoc=2.17.0.1=h8ffe710_0
   - pandocfilters=1.5.0=pyhd8ed1ab_0
   - paramiko=2.9.2=pyhd8ed1ab_0

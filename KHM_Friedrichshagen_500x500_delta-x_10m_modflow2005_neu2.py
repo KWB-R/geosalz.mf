@@ -4,8 +4,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import flopy
 import flopy.utils.binaryfile as bf
+sys.path.append('modules')
+from get_layerbudget import get_layerbudget
+#sys.path.append(os.path.join("..", "common")) # why is this needed?????
 
-sys.path.append(os.path.join("..", "common"))
+
+### Download latest Modflow 2005 from
+### https://water.usgs.gov/water-resources/software/MODFLOW-2005/
+### and extract
+
+mf_exe = "C:/WRDD/MF2005.1_12/bin/mf2005.exe"
+mt3d_exe = "C:/WRDD/mt3dusgs1.1.0/bin/mt3d-usgs_1.1.0_64.exe"
 
 plt.rcParams.update({'font.size': 3})
 
@@ -14,7 +23,7 @@ plt.rcParams.update({'font.size': 3})
 # sys.path.append(os.path.join("..", "common"))
 
 figure_size = (12, 12)
-ws = './flow_model'
+ws = './flow_model' # model working directory
 parameter_units = {"recharge": "$m/s$", "slt_cnc": "$kg m^{-3}$", "slt_strt": "$kg m^{-3}$", "perlen": "$s$"}
 slt_cnc = 3.0
 slt_strt = 0.2
@@ -22,7 +31,7 @@ porosity = 0.30
 #length_units = "meter"
 #time_units = "years"
 perlen = 315360
-perlent = 5*864000
+perlent = 5*864000 
 steady = [False]
 nstp = 10
 
@@ -108,12 +117,11 @@ riv_spd = {0: riv_spd}
 # Flow model
 
 modelname_mf = "flow"
-# model_ws = os.path.join(ws, "mfgwf")
 
 mf = flopy.modflow.Modflow(
-    modelname=modelname_mf, model_ws=ws, exe_name="C:/WRDD/MF2005.1_12/bin/mf2005.exe")
+    modelname=modelname_mf, model_ws=ws, exe_name=mf_exe)
 
-flopy.modflow.ModflowDis(
+dis = flopy.modflow.ModflowDis(
     mf,
     nlay=nlay,
     nrow=nrow,
@@ -125,7 +133,7 @@ flopy.modflow.ModflowDis(
     perlen=perlen,
     steady=steady,
     nstp=nstp
-)
+    )
 
 ibound = np.ones((nlay, nrow, ncol), dtype=np.int32)
 # ibound[:, :, 0] = -1
@@ -137,36 +145,68 @@ strt[:, :, -1] = 0.0  # Starting head ($m$)
 bas = flopy.modflow.ModflowBas(mf, ibound=ibound, strt=strt)
 
 # Instantiate layer property flow package
-flopy.modflow.ModflowLpf(mf, hk=k11, vka=k33, ipakcb=53)
+lpf = flopy.modflow.ModflowLpf(mf, hk=k11, vka=k33, ipakcb=53)
 
 # Instantiate well package
-flopy.modflow.ModflowWel(mf, stress_period_data=wel_spd)
+well = flopy.modflow.ModflowWel(mf, stress_period_data=wel_spd)
 
 # Instantiate river package
-flopy.modflow.ModflowRiv(mf, stress_period_data=riv_spd)
+river = flopy.modflow.ModflowRiv(mf, stress_period_data=riv_spd)
 
 # Instantiate solver package
-flopy.modflow.ModflowSip(mf)
+solver = flopy.modflow.ModflowSip(mf)
 
 # Instantiate link mass transport package (for writing linker file)
-flopy.modflow.ModflowLmt(mf)
+lmt = flopy.modflow.ModflowLmt(mf)
 
 spd = {(0, 0): ["print head", "print budget", "save head", "save budget"]}
 oc = flopy.modflow.ModflowOc(mf, stress_period_data=spd, compact=True, save_specific_discharge=True)
 
 mf.write_input()
-mf.run_model()
+
+success, buff = mf.run_model()
+if not success:
+    raise Exception("MODFLOW did not terminate normally.")
+
 
 # Extract the heads
 
-hds = bf.HeadFile("flow_model/flow.hds")
+hds = bf.HeadFile(os.path.join(ws, modelname_mf + ".hds"))
 times = hds.get_times()
 head = hds.get_data(totim=times[-1])
 
-cbb = bf.CellBudgetFile("flow_model/flow.cbc")
+cbb = bf.CellBudgetFile(os.path.join(ws, modelname_mf + ".cbc"))
+cbb.get_data(kstpkper= (0,0))
 kstpkper_list = cbb.get_kstpkper()
 frf = cbb.get_data(text="FLOW RIGHT FACE", totim=times[-1])[0]
 fff = cbb.get_data(text="FLOW FRONT FACE", totim=times[-1])[0]
+
+
+
+### Get layer based budget for each time step
+layer_budget = get_layerbudget(modelname = modelname_mf, 
+                               nlay = mf.dis.nlay, 
+                               model_ws = ws)
+    
+
+### Aggregate budget for layer for whole simulation
+layer_budget_perLayer = layer_budget.groupby(['layer']).sum().reset_index()
+
+### Aggregate budget for stress period & layer
+layer_budget_perStressPeriod = layer_budget.groupby(['layer', 'stress_period']).sum().reset_index()
+
+
+### Filter only lowest layer
+layer3_budget_perStressPeriod = layer_budget_perStressPeriod[layer_budget_perStressPeriod['layer'] == 5]
+
+mf_list = flopy.utils.MfListBudget(os.path.join(ws, modelname_mf +".list"))
+budget_incremental, budget_cumulative = mf_list.get_dataframes(start_datetime='31-12-2006')
+
+layer3_budget_perStressPeriod['MNW2_IN'] = np.append(budget_cumulative['MNW2_IN'][0],
+                                                     budget_cumulative['MNW2_IN'].diff().as_matrix()[1:])
+
+layer3_budget_perStressPeriod['MNW2_OUT'] = np.append(budget_cumulative['MNW2_OUT'][0],
+                                                      budget_cumulative['MNW2_OUT'].diff().as_matrix()[1:])
 
 def plot_mf():
     fig, axes = plt.subplots(2, 3, figsize=figure_size, dpi=300, constrained_layout=True, )
@@ -206,7 +246,7 @@ model_ws = os.path.join(ws, "mfgwt")
 mt = flopy.mt3d.Mt3dms(
     modelname=modelname_mt,
     model_ws=ws,
-    exe_name="C:/WRDD/mt3dusgs1.1.0/bin/mt3d-usgs_1.1.0_64.exe",
+    exe_name=mt3d_exe,
     modflowmodel=mf,
 )
 

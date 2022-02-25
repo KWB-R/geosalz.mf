@@ -12,14 +12,11 @@ import flopy.utils.binaryfile as bf
 
 
 def get_layerbudget(modelname,
-                    nper, 
-                    perlen,
                     nlay, 
                     model_ws = '.',
                     debug = True
                     ):
     
-    perlen = np.array(perlen, ndmin=1, copy=False)
     
     bud_agg = pd.DataFrame(columns=['stress_period',
                               'time_step',
@@ -32,8 +29,10 @@ def get_layerbudget(modelname,
                               'FLOW_FRONT_FACE',
                               'FLOW_LOWER_FACE'])
     cbb = bf.CellBudgetFile(os.path.join(model_ws, modelname+'.cbc'))  
-    for stress_period in np.arange(0,nper).astype('int'):
-        for time_step in np.arange(0,perlen[stress_period]).astype('int'):
+    stressperiod_timestep = cbb.get_kstpkper()
+
+    for stress_period in [item[0] for item in stressperiod_timestep]:
+        for time_step in [item[1] for item in stressperiod_timestep]:
             bud = cbb.get_data(kstpkper = (time_step,stress_period), 
                        full3D=True)    
             for layer in np.arange(0,nlay).astype('int'): 
@@ -60,8 +59,8 @@ def get_layerbudget(modelname,
                               'FLOW_FRONT_FACE',
                               'FLOW_LOWER_FACE'])
                 bud_agg = bud_agg.append(tmp,ignore_index=True)
-    bud_agg.loc[:,['CONSTANT_HEAD_IN']] = bud_agg['CONSTANT_HEAD_IN'].as_matrix().astype("float32")
-    bud_agg.loc[:,['CONSTANT_HEAD_OUT']] = bud_agg['CONSTANT_HEAD_OUT'].as_matrix().astype("float32")
-    bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_IN']),['CONSTANT_HEAD_IN']] = 0
-    bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_OUT']),['CONSTANT_HEAD_OUT']] = 0
+    #bud_agg.loc[:,['CONSTANT_HEAD_IN']] = bud_agg['CONSTANT_HEAD_IN'].as_matrix().astype("float32")
+    #bud_agg.loc[:,['CONSTANT_HEAD_OUT']] = bud_agg['CONSTANT_HEAD_OUT'].as_matrix().astype("float32")
+    #bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_IN']),['CONSTANT_HEAD_IN']] = 0
+    #bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_OUT']),['CONSTANT_HEAD_OUT']] = 0
     return(bud_agg)
