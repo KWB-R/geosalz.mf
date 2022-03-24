@@ -5,10 +5,21 @@ import matplotlib.pyplot as plt
 import flopy
 import flopy.utils.binaryfile as bf
 import pandas as pd
-
 sys.path.append('modules')
+from get_layerbudget import get_layerbudget
 
 sys.path.append(os.path.join("..", "common"))
+
+### Download latest Modflow 2005 from
+### https://water.usgs.gov/water-resources/software/MODFLOW-2005/
+### and extract
+
+mf_exe = "C:/WRDD/MF2005.1_12/bin/mf2005.exe"
+mt3d_exe = "C:/WRDD/mt3dusgs1.1.0/bin/mt3d-usgs_1.1.0_64.exe"
+
+### Download latest Seawat from
+### https://water.usgs.gov/water-resources/software/SEAWAT/swt_v4_00_05.zip
+swt_exe = "C:/WRDD/swt_v4_00_05/exe/swt_v4.exe"
 
 plt.rcParams.update({'font.size': 3})
 
@@ -25,7 +36,7 @@ al = 20.0  # longitudinale Dispersivität
 rch = 2.7e-4  # GW Neubildungsrate
 perlen = 365  # Zeit für Flow-Modell
 perlent = 1600  # Zeit für Transportmodell
-steady = [False]  # instationär
+steady = False  # instationär
 
 nstpf = 1
 nstpt = 1
@@ -121,7 +132,7 @@ modelname_mf = "flow"
 # model_ws = os.path.join(ws, "mfgwf")
 
 mf = flopy.modflow.Modflow(
-    modelname=modelname_mf, model_ws=ws, exe_name="C:/development/MF2005.1_12/MF2005.1_12/bin/mf2005.exe")
+    modelname=modelname_mf, model_ws=ws, exe_name = mf_exe)
 
 flopy.modflow.ModflowDis(
     mf,
@@ -150,7 +161,7 @@ bas = flopy.modflow.ModflowBas(mf, ibound=ibound, strt=strt)
 flopy.modflow.ModflowLpf(mf, hk=k11, vka=k33, ipakcb=53, ss=5*10e-4)
 
 # Instantiate well package
-flopy.modflow.ModflowWel(mf, stress_period_data=wel_spd)
+flopy.modflow.ModflowWel(mf, stress_period_data = wel_spd)
 
 # Instantiate recharge package
 flopy.modflow.ModflowRch(mf, ipakcb=1, rech=rch)
@@ -170,21 +181,21 @@ oc = flopy.modflow.ModflowOc(mf, stress_period_data=spd, compact=True, save_spec
 modelname_mt = "transport"
 model_ws = os.path.join(ws, "mfgwt")
 mt = flopy.mt3d.Mt3dms(
-    modelname=modelname_mt,
-    model_ws=ws,
-    exe_name="C:/development/mt3dusgs1.1.0/mt3dusgs1.1.0/bin/mt3d-usgs_1.1.0_64.exe",
-    modflowmodel=mf,
+    modelname = modelname_mt,
+    model_ws = ws,
+    exe_name = mt3d_exe,
+    modflowmodel = mf,
 )
 
 btn = flopy.mt3d.Mt3dBtn(
     mt,
-    icbund=1,
-    prsity=porosity,
-    sconc=slt_strt,
-    perlen=perlent,
-    nper=1,
-    nstp=nstpt,
-    obs=obs_spd
+    icbund = 1,
+    prsity = porosity,
+    sconc = slt_strt,
+    perlen = perlent,
+    nper = 1,
+    nstp = nstpt,
+    obs = obs_spd
 )
 
 dceps = 1.0e-5
@@ -229,23 +240,23 @@ gcg = flopy.mt3d.Mt3dGcg(mt)
 
 
 swt = flopy.seawat.Seawat(
-    modflowmodel=mf,
-    mt3dmodel=mt,
-    modelname=modelname_mt,
+    modflowmodel = mf,
+    mt3dmodel = mt,
+    modelname = modelname_mt,
     namefile_ext="nam_swt",
-    model_ws=ws,
-    exe_name="C:/development/bin/bin/swt_v4.exe"
+    model_ws = ws,
+    exe_name = swt_exe
 )
 vdf = flopy.seawat.SeawatVdf(
     swt,
-    mtdnconc=0,
-    iwtable=0,
-    indense=-1,
-    densemin=0,
-    densemax=0,
-    denseref=1000.0,
-    denseslp=0.7143,
-    firstdt=1e-3
+    mtdnconc = 0,
+    iwtable = 0,
+    indense = -1,
+    densemin = 0,
+    densemax = 0,
+    denseref = 1000.0,
+    denseslp = 0.7143,
+    firstdt = 1e-3
 )
 
 mf.write_input()
@@ -320,90 +331,15 @@ def plot_mf():
 
 # plot_mf()
 
-
-def get_layerbudget(modelname,
-                    nper,
-                    perlen,
-                    nlay,
-                    model_ws='.',
-                    debug=True
-                    ):
-    perlen = np.array(perlen, ndmin=1, copy=False)
-
-    bud_agg = pd.DataFrame(columns=['stress_period',
-                                    'time_step',
-                                    'layer',
-                                    'STORAGE_IN',
-                                    'STORAGE_OUT',
-                                    'CONSTANT_HEAD_IN',
-                                    'CONSTANT_HEAD_OUT',
-                                    'FLOW_RIGHT_FACE',
-                                    'FLOW_FRONT_FACE',
-                                    'FLOW_LOWER_FACE', ])
-    cbb = bf.CellBudgetFile(os.path.join(model_ws, modelname + '.cbc'))
-    for stress_period in np.arange(0, nper).astype('int'):
-        for time_step in np.arange(0, perlen[stress_period]).astype('int'):
-            stressperiod_timestep = cbb.get_kstpkper()
-
-    for stress_period in [item[0] for item in stressperiod_timestep]:
-        for time_step in [item[1] for item in stressperiod_timestep]:
-            bud = cbb.get_data(kstpkper=(time_step, stress_period),
-                               full3D=True)
-            for layer in np.arange(0, nlay).astype('int'):
-                if debug:
-                    print("Stress period: " + str(stress_period + 1) + ", Time step: " + str(
-                        time_step + 1) + ", Layer: " + str(layer + 1))
-                tmp = pd.DataFrame([[stress_period,
-                                     time_step + 1,
-                                     layer,
-                                     bud[0][layer][bud[0][layer] > 0].sum(),
-                                     bud[0][layer][bud[0][layer] < 0].sum(),
-                                     bud[1][layer][bud[1][layer] > 0].sum(),
-                                     bud[1][layer][bud[1][layer] < 0].sum(),
-                                     bud[2][layer].sum(),
-                                     bud[3][layer].sum(),
-                                     bud[4][layer].sum()
-                                     ]],
-                                   columns=['stress_period',
-                                            'time_step',
-                                            'layer',
-                                            'STORAGE_IN',
-                                            'STORAGE_OUT',
-                                            'CONSTANT_HEAD_IN',
-                                            'CONSTANT_HEAD_OUT',
-                                            'FLOW_RIGHT_FACE',
-                                            'FLOW_FRONT_FACE',
-                                            'FLOW_LOWER_FACE'])
-                bud_agg = bud_agg.append(tmp, ignore_index=True)
-    # bud_agg.loc[:,['CONSTANT_HEAD_IN']] = bud_agg['CONSTANT_HEAD_IN'].as_matrix().astype("float32")
-    # bud_agg.loc[:,['CONSTANT_HEAD_OUT']] = bud_agg['CONSTANT_HEAD_OUT'].as_matrix().astype("float32")
-    # bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_IN']),['CONSTANT_HEAD_IN']] = 0
-    # bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_OUT']),['CONSTANT_HEAD_OUT']] = 0
-    # bud_agg.loc[:,['CONSTANT_HEAD_IN']] = bud_agg['CONSTANT_HEAD_IN'].as_matrix().astype("float32")
-    # bud_agg.loc[:,['CONSTANT_HEAD_OUT']] = bud_agg['CONSTANT_HEAD_OUT'].as_matrix().astype("float32")
-    # bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_IN']),['CONSTANT_HEAD_IN']] = 0
-    # bud_agg.loc[np.isnan(bud_agg['CONSTANT_HEAD_OUT']),['CONSTANT_HEAD_OUT']] = 0
-    return bud_agg
-
-
 ### Get layer based budget for each time step
 layer_budget = get_layerbudget(modelname=modelname_mf,
                                nlay=mf.dis.nlay,
-                               model_ws=ws, nper=nper, perlen=perlen)
+                               model_ws=ws)
 
-### Aggregate budget for layer for whole simulation
-#  layer_budget_perLayer = layer_budget.groupby(['layer']).sum().reset_index()
-
-### Aggregate budget for stress period & layer
-#  layer_budget_perStressPeriod = layer_budget.groupby(['layer', 'stress_period']).sum().reset_index()
-
-### Filter only lowest layer
-#  layer3_budget_perStressPeriod = layer_budget_perStressPeriod[layer_budget_perStressPeriod['layer'] == 6]
-
-#  mf_list = flopy.utils.MfListBudget(os.path.join(ws, modelname_mf + ".list"))
-#  budget_incremental, budget_cumulative = mf_list.get_dataframes(start_datetime='31-12-2006')
 
 layer_budget[[
+    'STORAGE_IN',
+    'STORAGE_OUT',
     'CONSTANT_HEAD_IN',
     'CONSTANT_HEAD_OUT',
     'FLOW_RIGHT_FACE',
@@ -415,11 +351,31 @@ plt.yticks(fontsize=10)
 plt.legend(fontsize=10)
 plt.show()
 
-# layer3_budget_perStressPeriod['MNW2_IN'] = np.append(budget_cumulative['MNW2_IN'][0],
-# budget_cumulative['MNW2_IN'].diff().as_matrix()[1:])
 
-# layer3_budget_perStressPeriod['MNW2_OUT'] = np.append(budget_cumulative['MNW2_OUT'][0],
-# budget_cumulative['MNW2_OUT'].diff().as_matrix()[1:])
+### Aggregate budget for layer for whole simulation
+layer_budget_perLayer = layer_budget.groupby(['layer']).sum().reset_index()
+
+### Aggregate budget for stress period & layer
+layer_budget_perStressPeriod = layer_budget.groupby(['layer', 'stress_period']).sum().reset_index()
+
+### Filter only layer 6 (above lowest layer 7)
+layer6_budget_perStressPeriod = layer_budget_perStressPeriod[layer_budget_perStressPeriod['layer'] == 5]
+
+mf_list = flopy.utils.MfListBudget(os.path.join(ws, modelname_mf + ".list"))
+
+budget_incremental, budget_cumulative = mf_list.get_dataframes()
+
+budget_incremental.insert(12, "INFLOW_FROM_LAYER_6", layer6_budget_perStressPeriod["FLOW_LOWER_FACE"] * -1)
+
+budget_cumulative.to_csv(os.path.join(ws, modelname_mf + "-budget_cumulative.csv"),sep = ";")
+budget_incremental.to_csv(os.path.join(ws, modelname_mf + "-budget_incremental.csv"), sep = ";")
+                          
+
+budget_incremental.plot(kind="bar")                          
+plt.xticks(fontsize=10)
+plt.yticks(fontsize=10)
+plt.legend(fontsize=10)
+plt.show()
 
 
 def plot_cross():
